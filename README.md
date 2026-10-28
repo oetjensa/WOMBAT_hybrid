@@ -123,5 +123,7 @@ The same logicals as in WOMBATmid_hy are incorporated to allow testing offline a
 
 ## Phase  4 - 6: Run WOMBATlite_hy and evaluate performance
 
+<img width="1051" height="675" alt="image" src="https://github.com/user-attachments/assets/07a91b6d-461b-4b60-a411-8907d664a926" />
+
 
 
