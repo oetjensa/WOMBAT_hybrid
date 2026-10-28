@@ -6,6 +6,7 @@ Development and testing of hybrid WOMBAT on GADI
 
 |  Phase | model         | forcing         | mode    | do_shadow | do_emulator | Notes                                                                                           |
 |---|---------------|-----------------|---------|-----------|-------------|-------------------------------------------------------------------------------------------------|
+| 0 | PyTorch, FTorch |              |            |        |             | Install and configure PyTorch/FTorch on GADI/HPC          |
 | 1 | WOMBATmid*    | iaf 1958-1990   | offline training | .false.   | .false.     | train MLP on poc1remi data, skip spin-up (3years)                                               |
 | 2 | WOMBATmid_hy  | iaf 1958-       | online shadow  | .true.    | .false.     | use 'shadow' mode to test MLP behaviour online,  but still use original poc1remi to drive model |
 | 3 | WOMBATmid_hy  | iaf 1958        | online emulator  | .false.   | .true.      | use MLP online to drive model                                                                   |
