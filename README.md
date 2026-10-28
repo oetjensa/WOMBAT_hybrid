@@ -55,12 +55,16 @@ The same logicals as in WOMBATmid_hy are incorporated to allow testing offline a
 
 ### PyTorch
 
-> cd ftorch_model                      # create folder  
+- create folder  
+> cd ftorch_model                       
 > module purge  
-> module load python3/3.11.7 <           # load new python version  
-> python3 -m venv torchvenv            # create virtual environment  
-> source torchvenv/bin/activate  
-> pip install --upgrade pip            # update pip  
+- load new python version  
+> module load python3/3.11.7
+- create virtual environment   
+> python3 -m venv torchvenv            
+> source torchvenv/bin/activate
+-  update pip  
+> pip install --upgrade pip            
 
 **install torch and torchvision, check for version:**  
 *https://pytorch.org/get-started/locally/*  
