@@ -107,11 +107,21 @@ make VERBOSE=1 2>&1 | tee build_log.txt
 
 ## Phase 1: Train model(s) on WOMBATmid output data (offline)  
 
-> Notebooks to perform analysis and intercomparison of different MLPs are: emulator_training  
+> Notebooks to perform analysis and intercomparison of different MLPs are: emulator_training
+
+<img width="336" height="369" alt="image" src="https://github.com/user-attachments/assets/7cef5ccc-7656-4825-979f-b6d7834a0ab8" />
+
+<img width="339" height="309" alt="image" src="https://github.com/user-attachments/assets/33b41f80-993e-4b98-8ec7-640fcd302e38" />
+
 
 ## Phase 2 \& 3: Testing of MLP within training model (online shadow and emulator mode)  
 
-> Notebooks to perform analysis are: emulator_testing  
+> Notebooks to perform analysis are: emulator_testing
+
+<img width="1120" height="472" alt="image" src="https://github.com/user-attachments/assets/2f620589-eb0d-4dcc-b956-58bb620acd02" />
+
+<img width="952" height="839" alt="image" src="https://github.com/user-attachments/assets/6a4578fc-6123-41b1-8ac9-b01ccd9422bc" />
+
 
 ## Phase  4 - 6: Run WOMBATlite_hy and evaluate performance
 
