@@ -41,7 +41,42 @@ WOMBATlite is the off-the-shelf version used for the control run. The goal is to
 
 WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineralisation rate.  
 
-The same logicals as in WOMBATmid_hy are incorporated to allow testing offline and at run-time.  
+The same logicals as in WOMBATmid_hy are incorporated to allow testing offline and at run-time:
+
+```Fortran
+      !-----------------------------------------------------------------------!
+      !-----------------------------------------------------------------------!
+      !-----------------------------------------------------------------------!
+      !  [Step 3] Heterotrophy and remineralisation                           !
+      !-----------------------------------------------------------------------!
+      !-----------------------------------------------------------------------!
+      !-----------------------------------------------------------------------!
+
+      ! Temperature dependance of heterotrophy (applies to bact and zoo)
+      fbc = wombat%bbioh ** (Temp(i,j,k))
+
+      ! Variable rates of remineralisation
+      o2lim = max(0.0, min(1.0, 1.0 - exp(-o2_mmolm3)))
+      !wombat%reminr(i,j,k) = wombat%detlrem * fbc * o2lim
+       
+      ! emmulator shadow
+      if (do_emulator_shadow) then
+        call wombat_remin_point(Temp(i,j,k), o2_mmolm3*mmol_m3_to_mol_kg, &
+                det_mmolm3*mmol_m3_to_mol_kg, zoo_mmolm3*mmol_m3_to_mol_kg, remin_rate)
+        wombat%reminr_nn(i,j,k) = min(remin_rate, det_mmolm3*mmol_m3_to_mol_kg/dtsb) / (det_mmolm3**2*mmol_m3_to_mol_kg+epsi)
+      endif
+
+      ! use emulator to run reminr (need to convert from detremi to reminr)
+      ! reminr = detremi * mmolm3_to_kg / det_mmol3**2
+      if (do_emulator_run) then    
+        call wombat_remin_point(Temp(i,j,k), o2_mmolm3*mmol_m3_to_mol_kg, &
+                det_mmolm3*mmol_m3_to_mol_kg, zoo_mmolm3*mmol_m3_to_mol_kg, remin_rate)
+       ! wombat%reminr(i,j,k) = min(remin_rate / (mmol_m3_to_mol_kg*det_mmolm3**2+epsi), (det_mmolm3*mmol_m3_to_mol_kg/det_mmolm3**2+epsi)/dtsb)
+        wombat%reminr(i,j,k) = min(remin_rate, det_mmolm3*mmol_m3_to_mol_kg/dtsb) / (det_mmolm3**2*mmol_m3_to_mol_kg+epsi)
+      else 
+        wombat%reminr(i,j,k) = wombat%detlrem * fbc * o2lim
+      endif
+```
 
 
 
