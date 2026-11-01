@@ -18,7 +18,7 @@ Development and testing of hybrid WOMBAT on GADI
 ## Introducing the WOMBATs  
 
 Source code located at:  
-*https://github.com/oetjensa/GFDL-generic-tracers/blob/wombatmid-hy/generic_tracers/generic_WOMBATmid.F90*  
+*https://github.com/oetjensa/GFDL-generic-tracers/blob/wombatmid-hy/generic_tracers/generic_WOMBATlite_hy.F90*  
 
 ### WOMBATfull* 
 
@@ -41,41 +41,139 @@ WOMBATlite is the off-the-shelf version used for the control run. The goal is to
 
 WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineralisation rate.  
 
-The same logicals as in WOMBATfull*_hy are incorporated to allow testing offline and at run-time:
+**Implement emulator subroutines**  
 
 ```Fortran
-      !-----------------------------------------------------------------------!
-      !-----------------------------------------------------------------------!
-      !-----------------------------------------------------------------------!
-      !  [Step 3] Heterotrophy and remineralisation                           !
-      !-----------------------------------------------------------------------!
-      !-----------------------------------------------------------------------!
-      !-----------------------------------------------------------------------!
+ subroutine emulator_init()
+    ! Initialise FTorch model
+    logical :: file_exists
+    integer :: default_batch
 
-      ! Temperature dependance of heterotrophy (applies to bact and zoo)
+    if (remin_ready) return
+
+    inquire(file=trim(remin_emulator_path), exist=file_exists)
+    if (.not. file_exists) call mpp_error(FATAL, &
+         'generic_WOMBAT_lite: emulator file not found: '//trim(remin_emulator_path))
+
+    default_batch = 128
+
+    allocate(remin_x1(default_batch, 4), remin_y1(default_batch))
+    remin_x1 = 1.0d0
+    remin_y1 = 0.0d0
+
+    call torch_model_load(remin_model, trim(remin_emulator_path), torch_kCPU)
+    call torch_tensor_from_array(remin_in(1), remin_x1, torch_kCPU)
+    call torch_tensor_from_array(remin_out(1), remin_y1, torch_kCPU)
+    remin_ready = .true.
+
+  end subroutine emulator_init
+
+  subroutine emulator_remin_batch(temp, o2, detr, zoos, rate)
+    real(kind=8), intent(in)  :: temp(:), o2(:), detr(:), zoos(:)
+    real(kind=8), intent(out) :: rate(size(temp))
+    integer :: n, i
+    type(ieee_flag_type), parameter :: trap_flags(3) = &
+            [ieee_invalid, ieee_overflow, ieee_divide_by_zero]
+    logical :: halting(3)
+
+    n = size(temp)
+    if (n <= 0) return
+
+    if (.not. allocated(remin_x1) .or. size(remin_x1,1) < n .or. size(remin_x1,2) /= 4) then
+      if (allocated(remin_x1)) deallocate(remin_x1)
+      if (allocated(remin_y1)) deallocate(remin_y1)
+      allocate(remin_x1(n,4), remin_y1(n))
+    endif
+
+    remin_x1 = 1.0d0
+    remin_y1 = 0.0d0
+
+    do i = 1, n
+      remin_x1(i,1) = temp(i)
+      remin_x1(i,2) = o2(i)
+      remin_x1(i,3) = detr(i)
+      remin_x1(i,4) = zoos(i)
+    enddo
+
+    call ieee_get_halting_mode(trap_flags, halting)
+    call ieee_set_halting_mode(trap_flags, .false.)
+    call torch_tensor_from_array(remin_in(1), remin_x1, torch_kCPU)
+    call torch_tensor_from_array(remin_out(1), remin_y1, torch_kCPU)
+    call torch_model_forward(remin_model, remin_in, remin_out)
+    call ieee_set_flag(trap_flags, .false.)
+    call ieee_set_halting_mode(trap_flags, halting)
+
+    do i = 1, n
+      rate(i) = remin_y1(i)
+    enddo
+
+  end subroutine emulator_remin_batch
+
+  subroutine emulator_remin(temp, o2, detr, zoos, rate)
+    real(kind=8), intent(in)  :: temp, o2, detr, zoos
+    real(kind=8), intent(out) :: rate
+    real(kind=8) :: tempv(1), o2v(1), detrv(1), zoosv(1), ratev(1)
+
+    tempv(1) = temp
+    o2v(1)   = o2
+    detrv(1) = detr
+    zoosv(1) = zoos
+
+    call emulator_remin_batch(tempv, o2v, detrv, zoosv, ratev)
+
+    rate = ratev(1)
+
+  end subroutine emulator_remin
+```
+
+**Emulate remineralisation rate**   
+
+```Fortran
+      if (do_emulator_shadow .or. do_emulator_run) then
+        do ncell = 1, nvalid
+          ii = i_b(ncell)
+          jj = j_b(ncell)
+          kk = k_b(ncell)
+          temp_b(ncell) = Temp(ii,jj,kk)
+          o2_b(ncell)   = max(0.0, wombat%p_o2(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          detr_b(ncell) = max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          zoos_b(ncell) = max(0.0, wombat%p_zoo(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+        enddo
+
+        if (nvalid > 0) then
+          call emulator_remin_batch(temp_b(1:nvalid), o2_b(1:nvalid), &
+              detr_b(1:nvalid), zoos_b(1:nvalid), rate_b(1:nvalid))
+
+          do ncell = 1, nvalid
+            ii = i_b(ncell)
+            jj = j_b(ncell)
+            kk = k_b(ncell)
+
+            if (do_emulator_shadow) then
+              wombat%reminr_nn(ii,jj,kk) = min(rate_b(ncell), &
+                  max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
+                  (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
+            endif
+
+            if (do_emulator_run) then
+              wombat%reminr(ii,jj,kk) = min(rate_b(ncell), &
+                  max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
+                  (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
+            endif
+          enddo
+        endif
+      endif
+
+   ! Temperature dependance of heterotrophy (applies to bact and zoo)
       fbc = wombat%bbioh ** (Temp(i,j,k))
 
       ! Variable rates of remineralisation
       o2lim = max(0.0, min(1.0, 1.0 - exp(-o2_mmolm3)))
-      !wombat%reminr(i,j,k) = wombat%detlrem * fbc * o2lim
-       
-      ! emmulator shadow
-      if (do_emulator_shadow) then
-        call wombat_remin_point(Temp(i,j,k), o2_mmolm3*mmol_m3_to_mol_kg, &
-                det_mmolm3*mmol_m3_to_mol_kg, zoo_mmolm3*mmol_m3_to_mol_kg, remin_rate)
-        wombat%reminr_nn(i,j,k) = min(remin_rate, det_mmolm3*mmol_m3_to_mol_kg/dtsb) / (det_mmolm3**2*mmol_m3_to_mol_kg+epsi)
-      endif
-
-      ! use emulator to run reminr (need to convert from detremi to reminr)
-      ! reminr = detremi * mmolm3_to_kg / det_mmol3**2
-      if (do_emulator_run) then    
-        call wombat_remin_point(Temp(i,j,k), o2_mmolm3*mmol_m3_to_mol_kg, &
-                det_mmolm3*mmol_m3_to_mol_kg, zoo_mmolm3*mmol_m3_to_mol_kg, remin_rate)
-       ! wombat%reminr(i,j,k) = min(remin_rate / (mmol_m3_to_mol_kg*det_mmolm3**2+epsi), (det_mmolm3*mmol_m3_to_mol_kg/det_mmolm3**2+epsi)/dtsb)
-        wombat%reminr(i,j,k) = min(remin_rate, det_mmolm3*mmol_m3_to_mol_kg/dtsb) / (det_mmolm3**2*mmol_m3_to_mol_kg+epsi)
-      else 
+      
+      if (.not. do_emulator_run) then
         wombat%reminr(i,j,k) = wombat%detlrem * fbc * o2lim
       endif
+
 ```
 
 
