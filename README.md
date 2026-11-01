@@ -2,18 +2,6 @@
 
 Development and testing of hybrid WOMBAT on GADI  
 
-**Experiment overview with more details below:**
-
-|  Phase | model         | forcing        | mode    | do_shadow | do_emulator | Notebook | Notes                                                              |
-|---|---------------|-----------------|---------|-----------|-------------|------------------|-------------------------------------------------------------------------------|
-| 0 | PyTorch, FTorch |              |            |        |                                  |      | Install and configure PyTorch/FTorch on GADI/HPC          |
-| 1 | WOMBATfull*    | iaf 1958-1990   | offline training | .false.   | .false. | Training-MLP | train MLP on poc1remi data, skip spin-up (3years)                                               |
-| 2 | WOMBATfull*_hy  | iaf 1958-       | online shadow  | .true.    | .false. | Shadow-WOMBATfull    | use 'shadow' mode to test MLP behaviour online,  but still use original poc1remi to drive model |
-| 3 | WOMBATfull*_hy  | iaf 1958-        | online emulator  | .false.   | .true. | Emulator-WOMBATfull     | use MLP online to drive model                                                                   |
-| 4 | WOMBATlite    | iaf 1958-2030** | offline testing | .false.   | .false. | Control-WOMBATlite    | test offline performance                                                                        |
-| 5 | WOMBATlite_hy | iaf 1958-2030** | online shadow  | .true.    | .false. |Shadow-WOMBATlite    | test MLP in shadow mode online                                                                  |
-| 6 | WOMBATlite_hy | iaf 1958-2030   | online emulator | .false.   | .true. | Emulator-WOMBATlite     | use MLP online to drive model                                                                   |
-
 
 ## Introducing the WOMBATs  
 
@@ -183,6 +171,19 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
 - WOMBATfull* was optimised to the *Southern Ocean Timeseries (SOTS)*   
 - All experiments are run at SOTS in the [single water-column](https://github.com/ACCESS-Community-Hub/om3-mom6-single-column/tree/jra_iaf%2Bwombatlite) configuration  
 - JRA55-do IAF 1958-2024 run on *cycle* to test for long-term stability (see config/forcing for details)  
+
+
+**Experiment overview with more details below:**
+
+|  Phase | model         | forcing        | mode    | do_shadow | do_emulator | Notebook | Notes                                                              |
+|---|---------------|-----------------|---------|-----------|-------------|------------------|-------------------------------------------------------------------------------|
+| 0 | PyTorch, FTorch |              |            |        |                                  |      | Install and configure PyTorch/FTorch on GADI/HPC          |
+| 1 | WOMBATfull*    | iaf 1958-1990   | offline training | .false.   | .false. | Training-MLP | train MLP on poc1remi data, skip spin-up (3years)                                               |
+| 2 | WOMBATfull*_hy  | iaf 1958-       | online shadow  | .true.    | .false. | Shadow-WOMBATfull    | use 'shadow' mode to test MLP behaviour online,  but still use original poc1remi to drive model |
+| 3 | WOMBATfull*_hy  | iaf 1958-        | online emulator  | .false.   | .true. | Emulator-WOMBATfull     | use MLP online to drive model                                                                   |
+| 4 | WOMBATlite    | iaf 1958-2030** | offline testing | .false.   | .false. | Control-WOMBATlite    | test offline performance                                                                        |
+| 5 | WOMBATlite_hy | iaf 1958-2030** | online shadow  | .true.    | .false. |Shadow-WOMBATlite    | test MLP in shadow mode online                                                                  |
+| 6 | WOMBATlite_hy | iaf 1958-2030   | online emulator | .false.   | .true. | Emulator-WOMBATlite     | use MLP online to drive model                                                                   |
 
 
 ## Phase 0: Setup PyTorch and FTorch on GADI  
