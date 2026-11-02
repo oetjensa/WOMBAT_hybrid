@@ -32,10 +32,9 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
 **Implement emulator subroutines**  
 
 ```Fortran
- subroutine emulator_init()
+  subroutine emulator_init()
     ! Initialise FTorch model
     logical :: file_exists
-    integer :: default_batch
 
     if (remin_ready) return
 
@@ -43,73 +42,80 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
     if (.not. file_exists) call mpp_error(FATAL, &
          'generic_WOMBAT_lite: emulator file not found: '//trim(remin_emulator_path))
 
-    default_batch = 128
-
-    allocate(remin_x1(default_batch, 4), remin_y1(default_batch))
-    remin_x1 = 1.0d0
-    remin_y1 = 0.0d0
-
     call torch_model_load(remin_model, trim(remin_emulator_path), torch_kCPU)
-    call torch_tensor_from_array(remin_in(1), remin_x1, torch_kCPU)
-    call torch_tensor_from_array(remin_out(1), remin_y1, torch_kCPU)
     remin_ready = .true.
 
   end subroutine emulator_init
 
-  subroutine emulator_remin_batch(temp, o2, detr, zoos, rate)
-    real(kind=8), intent(in)  :: temp(:), o2(:), detr(:), zoos(:)
-    real(kind=8), intent(out) :: rate(size(temp))
-    integer :: n, i
-    type(ieee_flag_type), parameter :: trap_flags(3) = &
-            [ieee_invalid, ieee_overflow, ieee_divide_by_zero]
-    logical :: halting(3)
+  subroutine emulator_prepare(nmax)
+    integer, intent(in) :: nmax
 
-    n = size(temp)
-    if (n <= 0) return
-
-    if (.not. allocated(remin_x1) .or. size(remin_x1,1) < n .or. size(remin_x1,2) /= 4) then
-      if (allocated(remin_x1)) deallocate(remin_x1)
-      if (allocated(remin_y1)) deallocate(remin_y1)
-      allocate(remin_x1(n,4), remin_y1(n))
+    if (remin_buffers_ready) then
+      if (remin_batch_size /= nmax) call mpp_error(FATAL, &
+          'generic_WOMBAT_lite: valid-cell count changed after emulator initialization')
+      return
     endif
 
+    if (.not. remin_ready) call mpp_error(FATAL, &
+        'generic_WOMBAT_lite: emulator model is not initialized')
+
+    allocate(remin_x1(nmax, 4), remin_y1(nmax))
     remin_x1 = 1.0d0
     remin_y1 = 0.0d0
-
-    do i = 1, n
-      remin_x1(i,1) = temp(i)
-      remin_x1(i,2) = o2(i)
-      remin_x1(i,3) = detr(i)
-      remin_x1(i,4) = zoos(i)
-    enddo
-
-    call ieee_get_halting_mode(trap_flags, halting)
-    call ieee_set_halting_mode(trap_flags, .false.)
     call torch_tensor_from_array(remin_in(1), remin_x1, torch_kCPU)
     call torch_tensor_from_array(remin_out(1), remin_y1, torch_kCPU)
-    call torch_model_forward(remin_model, remin_in, remin_out)
-    call ieee_set_flag(trap_flags, .false.)
-    call ieee_set_halting_mode(trap_flags, halting)
+    remin_batch_size = nmax
+    remin_buffers_ready = .true.
 
-    do i = 1, n
-      rate(i) = remin_y1(i)
-    enddo
+  end subroutine emulator_prepare
+
+  subroutine emulator_remin_batch()
+    if (remin_batch_size <= 0) return
+
+    if (.not. remin_buffers_ready) call mpp_error(FATAL, &
+        'generic_WOMBAT_lite: emulator buffers are not initialized')
+
+    call torch_model_forward(remin_model, remin_in, remin_out)
 
   end subroutine emulator_remin_batch
+
+  subroutine emulator_disable_traps()
+    if (remin_traps_disabled) return
+
+    call ieee_get_halting_mode(remin_trap_flags, remin_halting)
+    remin_traps_saved = .true.
+    call ieee_set_halting_mode(remin_trap_flags, .false.)
+    remin_traps_disabled = .true.
+  end subroutine emulator_disable_traps
+
+  subroutine emulator_restore_traps()
+    if (.not. remin_traps_disabled) return
+
+    call ieee_set_flag(remin_trap_flags, .false.)
+    if (remin_traps_saved) call ieee_set_halting_mode(remin_trap_flags, remin_halting)
+    remin_traps_saved = .false.
+    remin_traps_disabled = .false.
+  end subroutine emulator_restore_traps
 
   subroutine emulator_remin(temp, o2, detr, zoos, rate)
     real(kind=8), intent(in)  :: temp, o2, detr, zoos
     real(kind=8), intent(out) :: rate
-    real(kind=8) :: tempv(1), o2v(1), detrv(1), zoosv(1), ratev(1)
+    real(kind=8) :: tempv(1), o2v(1), detrv(1), zoosv(1)
 
     tempv(1) = temp
     o2v(1)   = o2
     detrv(1) = detr
     zoosv(1) = zoos
 
-    call emulator_remin_batch(tempv, o2v, detrv, zoosv, ratev)
+    if (.not. remin_buffers_ready .or. remin_batch_size /= 1) call mpp_error(FATAL, &
+        'generic_WOMBAT_lite: scalar emulator call requires a batch size of one')
+    remin_x1(1,1) = tempv(1)
+    remin_x1(1,2) = o2v(1)
+    remin_x1(1,3) = detrv(1)
+    remin_x1(1,4) = zoosv(1)
+    call emulator_remin_batch()
 
-    rate = ratev(1)
+    rate = remin_y1(1)
 
   end subroutine emulator_remin
 ```
@@ -117,20 +123,53 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
 **Emulate remineralisation rate**   
 
 ```Fortran
+    if (do_emulator_shadow .or. do_emulator_run) then
+      nvalid = 0
+      do kk = 1, nk
+        do jj = jsc, jec
+          do ii = isc, iec
+            if (kk <= grid_kmt(ii,jj) .and. grid_tmask(ii,jj,kk) > 0.0) then
+              nvalid = nvalid + 1
+            endif
+          enddo
+        enddo
+      enddo
+      if (nvalid > 0) then
+        call emulator_prepare(nvalid)
+        allocate(i_b(nvalid), j_b(nvalid), k_b(nvalid))
+        ncell = 0
+        do kk = 1, nk
+          do jj = jsc, jec
+            do ii = isc, iec
+              if (kk <= grid_kmt(ii,jj) .and. grid_tmask(ii,jj,kk) > 0.0) then
+                ncell = ncell + 1
+                i_b(ncell) = ii
+                j_b(ncell) = jj
+                k_b(ncell) = kk
+              endif
+            enddo
+          enddo
+        enddo
+      endif
+    else
+      nvalid = 0
+    endif
+```
+
+```Fortran
       if (do_emulator_shadow .or. do_emulator_run) then
         do ncell = 1, nvalid
           ii = i_b(ncell)
           jj = j_b(ncell)
           kk = k_b(ncell)
-          temp_b(ncell) = Temp(ii,jj,kk)
-          o2_b(ncell)   = max(0.0, wombat%p_o2(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
-          detr_b(ncell) = max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
-          zoos_b(ncell) = max(0.0, wombat%p_zoo(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          remin_x1(ncell,1) = Temp(ii,jj,kk)
+          remin_x1(ncell,2) = max(0.0, wombat%p_o2(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          remin_x1(ncell,3) = max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          remin_x1(ncell,4) = max(0.0, wombat%p_zoo(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
         enddo
 
         if (nvalid > 0) then
-          call emulator_remin_batch(temp_b(1:nvalid), o2_b(1:nvalid), &
-              detr_b(1:nvalid), zoos_b(1:nvalid), rate_b(1:nvalid))
+          call emulator_remin_batch()
 
           do ncell = 1, nvalid
             ii = i_b(ncell)
@@ -138,13 +177,13 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
             kk = k_b(ncell)
 
             if (do_emulator_shadow) then
-              wombat%reminr_nn(ii,jj,kk) = min(rate_b(ncell), &
+              wombat%reminr_nn(ii,jj,kk) = min(remin_y1(ncell), &
                   max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
                   (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
             endif
 
             if (do_emulator_run) then
-              wombat%reminr(ii,jj,kk) = min(rate_b(ncell), &
+              wombat%reminr(ii,jj,kk) = min(remin_y1(ncell), &
                   max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
                   (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
             endif
@@ -152,7 +191,11 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
         endif
       endif
 
-   ! Temperature dependance of heterotrophy (applies to bact and zoo)
+```
+
+```Fortran
+
+      ! Temperature dependance of heterotrophy (applies to bact and zoo)
       fbc = wombat%bbioh ** (Temp(i,j,k))
 
       ! Variable rates of remineralisation
@@ -161,7 +204,6 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
       if (.not. do_emulator_run) then
         wombat%reminr(i,j,k) = wombat%detlrem * fbc * o2lim
       endif
-
 ```
 
 
