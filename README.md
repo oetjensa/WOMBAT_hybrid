@@ -157,15 +157,24 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
 ```
 
 ```Fortran
+    if ((do_emulator_shadow .or. do_emulator_run) .and. nvalid > 0) &
+        call emulator_disable_traps()
+
+    do tn = 1,ts_npzd  !{
+
+      n_pools(:,:,:,1) = n_pools(:,:,:,2)
+      c_pools(:,:,:,1) = c_pools(:,:,:,2)
+      fe_pools(:,:,:,1) = fe_pools(:,:,:,2)
+
       if (do_emulator_shadow .or. do_emulator_run) then
         do ncell = 1, nvalid
           ii = i_b(ncell)
           jj = j_b(ncell)
           kk = k_b(ncell)
           remin_x1(ncell,1) = Temp(ii,jj,kk)
-          remin_x1(ncell,2) = max(0.0, wombat%p_o2(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
-          remin_x1(ncell,3) = max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
-          remin_x1(ncell,4) = max(0.0, wombat%p_zoo(ii,jj,kk,tau)) / mmol_m3_to_mol_kg
+          remin_x1(ncell,2) = max(0.0, wombat%p_o2(ii,jj,kk,tau))  !/ mmol_m3_to_mol_kg
+          remin_x1(ncell,3) = max(0.0, wombat%p_det(ii,jj,kk,tau)) !/ mmol_m3_to_mol_kg
+          remin_x1(ncell,4) = max(0.0, wombat%p_zoo(ii,jj,kk,tau)) !/ mmol_m3_to_mol_kg
         enddo
 
         if (nvalid > 0) then
@@ -177,15 +186,23 @@ WOMBATlite_hy is the hybrid WOMBATlite that can shadow and emulate the remineral
             kk = k_b(ncell)
 
             if (do_emulator_shadow) then
-              wombat%reminr_nn(ii,jj,kk) = min(remin_y1(ncell), &
-                  max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
-                  (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
+              det_kg   = max(0.0, wombat%p_det(ii,jj,kk,tau))
+              det_mmol = det_kg / mmol_m3_to_mol_kg
+              rate     = min(remin_y1(ncell), det_kg/dtsb)
+              wombat%reminr_nn(ii,jj,kk) = rate / (det_mmol**2 * mmol_m3_to_mol_kg + epsi)
+              !wombat%reminr_nn(ii,jj,kk) = min(remin_y1(ncell), &
+              !    max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
+              !    (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
             endif
 
             if (do_emulator_run) then
-              wombat%reminr(ii,jj,kk) = min(remin_y1(ncell), &
-                  max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
-                  (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
+              det_kg   = max(0.0, wombat%p_det(ii,jj,kk,tau))
+              det_mmol = det_kg / mmol_m3_to_mol_kg
+              rate     = min(remin_y1(ncell), det_kg/dtsb)
+              wombat%reminr(ii,jj,kk) = rate / (det_mmol**2 * mmol_m3_to_mol_kg + epsi)
+               ! wombat%reminr(ii,jj,kk) = min(remin_y1(ncell), &
+               !     max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg / dtsb) / &
+               !    (max(0.0, wombat%p_det(ii,jj,kk,tau)) / mmol_m3_to_mol_kg + epsi)
             endif
           enddo
         endif
